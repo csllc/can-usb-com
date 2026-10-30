@@ -163,7 +163,8 @@ describe('Send a Message', () => {
     await can.drain();
 
 
-    expect(can.port.binding.txPackets.length).eq(8);
+    // the serialport stream exposes the binding's open port object as .port
+    expect(can.port.port.txPackets.length).eq(8);
     return p;
 
   });

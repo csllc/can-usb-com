@@ -5,10 +5,10 @@ pipeline {
     }
     stages {
 
-        stage('Test Node 14') {
+        stage('Test Node 20') {
             agent {
                 docker {
-                    image 'node:14-slim'
+                    image 'node:20-slim'
                 }
             }
             steps {
@@ -16,10 +16,21 @@ pipeline {
                 sh 'npm install && npm test'
             }
         }
-        stage('Test Node 16') {
+        stage('Test Node 22') {
             agent {
                 docker {
-                    image 'node:16-slim'
+                    image 'node:22-slim'
+                }
+            }
+            steps {
+                sh 'rm -rf node_modules'
+                sh 'npm install && npm test'
+            }
+        }
+        stage('Test Node 24') {
+            agent {
+                docker {
+                    image 'node:24-slim'
                 }
             }
             steps {

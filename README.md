@@ -5,7 +5,7 @@ This module provides a nodejs interface to the [gridconnect CAN-USB Converter](h
 The module implements the [device-specific serial protocol](https://gridconnect.box.com/shared/static/bt1lpbzdhx2fws11z1tvsoi2xnhbvgv3.pdf) and is not compatible with any other device or adapter.
 
 ## Getting Started
-The following assumes that [NodeJS](https://nodejs.org) is already installed.  To install this module, use
+The following assumes that [NodeJS](https://nodejs.org) 20 or later is already installed.  To install this module, use
 ```powershell
 npm install can-usb-com
 ```
@@ -41,7 +41,7 @@ board.open( 'COM3' )
   }, 5000 );
 
   // send an extended (29-bit ID) message with some data.
-  board.write( { id: 0x10EF8001, ext: true, buf: [0x49, 0x2B, 0x06, 0x00, 0x02]);
+  board.write( { id: 0x10EF8001, ext: true, buf: [0x49, 0x2B, 0x06, 0x00, 0x02] });
 
 })
 .catch( function( err ) {
@@ -147,5 +147,7 @@ Please note the following if you wish to update or modify this package:
 * eslint rules are included, please lint any changes.
 * Confirm that unit tests are working.  To run the tests, use the 'npm test' command.
 
-In order to run tests, you will need at least one CAN-USB-COM device connected to your computer.  I think you may have to have the CAN-USB-COM device connected to a properly terminated bus.  However, do not run the tests on a bus with active traffic, since receiving unexpected CAN packets will probably confuse the tests.
+`npm test` runs `test/basic.test.js`, which uses a mock serial port binding (`test/MockBinding.js`) and needs no hardware.  The mock is supplied through the `Binding` constructor option; any object implementing the serialport v10+ binding interface (`list()` and `open()`) can be used there.
+
+`test/filter.test.js` runs against real hardware.  In order to run it, you will need at least one CAN-USB-COM device connected to your computer.  I think you may have to have the CAN-USB-COM device connected to a properly terminated bus.  However, do not run the tests on a bus with active traffic, since receiving unexpected CAN packets will probably confuse the tests.
  

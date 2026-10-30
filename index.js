@@ -11,7 +11,11 @@
 
 const { Duplex } = require('stream');
 
-const SerialPort = require('serialport');
+// serialport v10+ split the stream from the native bindings.  We use the
+// stream class directly (instead of the 'serialport' meta-package) so that a
+// custom binding (eg a mock for unit tests) can be supplied per instance.
+const { SerialPortStream } = require('@serialport/stream');
+const { autoDetect } = require('@serialport/bindings-cpp');
 
 // Carriage return
 const CR = '\r';
@@ -59,18 +63,19 @@ module.exports = class CanUsbCom extends Duplex {
   // sets (or re-sets) the configuration options.
   setOptions(options) {
 
-    // save for later use
-    this.options = Object.assign(DEFAULT_OPTIONS, options);
+    // save for later use (don't modify the defaults object; that would leak
+    // settings from one instance into the next)
+    this.options = Object.assign({}, DEFAULT_OPTIONS, options);
 
-    if(this.options.Binding) {
-      SerialPort.Binding = this.options.Binding;
-    }
+    // Hardware binding: use the one supplied by the caller (eg a mock for
+    // testing), otherwise the native binding for this platform
+    this.binding = this.options.binding || this.options.Binding || autoDetect();
   }
 
   // Returns a promise that resolves to a list of available serial ports
   list() {
 
-    return SerialPort.list()
+    return this.binding.list()
     .then(function(ports) {
 
       return (ports.filter(function(port) {
@@ -93,6 +98,8 @@ module.exports = class CanUsbCom extends Duplex {
     return new Promise(function(resolve, reject) {
 
       let serialOptions = {
+        binding: me.binding,
+        path: port,
         baudRate: me.options.baudRate
       };
 
@@ -102,7 +109,7 @@ module.exports = class CanUsbCom extends Duplex {
 
       // Do this last, since the caller will have their callback called
       // when the port is opened
-      me.port = new SerialPort(port, serialOptions, function(err) {
+      me.port = new SerialPortStream(serialOptions, function(err) {
 
         if(err) {
           reject(err);
@@ -211,8 +218,23 @@ module.exports = class CanUsbCom extends Duplex {
 
   }
 
+  // Returns a promise that resolves when all queued output has been
+  // transmitted to the device
   drain() {
-    return this.port.drain();
+    let me = this;
+
+    return new Promise(function(resolve, reject) {
+      if(!me.port) {
+        return reject(new Error('Port not open'));
+      }
+      me.port.drain(function(err) {
+        if(err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
   // required functions for a readable stream, we don't need to do anything

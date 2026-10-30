@@ -1,4 +1,17 @@
-const AbstractBinding = require('@serialport/binding-abstract');
+/**
+ * Mock serialport binding that emulates a CAN-USB-COM device
+ *
+ * Implements the serialport v10+ binding interface
+ * (see @serialport/bindings-interface):
+ *
+ *   binding.list() -> Promise<PortInfo[]>
+ *   binding.open(options) -> Promise<BindingPort>
+ *
+ * Pass it to the CanUsbCom constructor as the `Binding` option.  Any
+ * `bindingOptions` given to CanUsbCom are passed through to open(); the mock
+ * recognizes `bindingOptions.packetcb(port, packet)`, which is called for each
+ * CAN frame the module sends.
+ */
 
 const MOCK_PORT = '/dev/MOCK';
 
@@ -6,47 +19,47 @@ function resolveNextTick() {
   return new Promise(resolve => process.nextTick(() => resolve()));
 }
 
-module.exports = class MockBinding extends AbstractBinding {
-  constructor(opt) {
-    // console.log('MockBinding::', opt);
-    super(opt);
-    this.isOpen = false;
+// Error used to cancel a pending read when the port closes.  The serialport
+// stream ignores read errors that have `canceled` set.
+function canceledError(message) {
+  const err = new Error(message);
+  err.canceled = true;
+  return err;
+}
+
+/**
+ * An open (mock) port
+ */
+class MockPort {
+  constructor(openOptions) {
+    this.openOptions = openOptions;
+    this.isOpen = true;
     this.maxReadSize = 1000;
     this.rxdata = Buffer.alloc(0);
     this.pendingRead = null;
     this.configMode = true;
     this.txPackets = [];
-    this.path = opt.bindingOptions.path;
-    this.packetcb = opt.bindingOptions.packetcb;
+    this.path = openOptions.path;
 
-  }
-
-  static async list() {
-
-    return [{
-      path: MOCK_PORT,
-      pnpId: undefined,
-      locationId: undefined,
-      manufacturer: 'Mockery Inc',
-      vendorId: '0403',
-      productId: '6001',
-    }];
-  }
-  async open(path, options) {
-    // console.log('MockBinding::open', path, options);
-    await resolveNextTick();
-    this.isOpen = true;
+    const bindingOptions = openOptions.bindingOptions || {};
+    this.packetcb = bindingOptions.packetcb;
   }
 
   async close() {
-    // console.log('MockBinding::close');
-    await resolveNextTick();
-
+    if(!this.isOpen) {
+      throw new Error('Port is not open');
+    }
     this.isOpen = false;
+
+    if(this.pendingRead) {
+      const pendingRead = this.pendingRead;
+      this.pendingRead = null;
+      pendingRead(canceledError('Port is closed'));
+    }
+    await resolveNextTick();
   }
 
   async read(buffer, offset, length) {
-    // console.log('MockBinding::read', offset, length);
     if(!Buffer.isBuffer(buffer)) {
       throw new TypeError('"buffer" is not a Buffer');
     }
@@ -65,7 +78,7 @@ module.exports = class MockBinding extends AbstractBinding {
 
     await resolveNextTick();
     if(!this.isOpen) {
-      throw new Error('Read canceled');
+      throw canceledError('Read canceled');
     }
     if(this.rxdata.length <= 0) {
       return new Promise((resolve, reject) => {
@@ -78,9 +91,9 @@ module.exports = class MockBinding extends AbstractBinding {
       });
     }
     const lengthToRead = this.maxReadSize > length ? length : this.maxReadSize;
-    const data = this.rxdata.slice(0, lengthToRead);
+    const data = this.rxdata.subarray(0, lengthToRead);
     const bytesRead = data.copy(buffer, offset);
-    this.rxdata = this.rxdata.slice(lengthToRead);
+    this.rxdata = this.rxdata.subarray(bytesRead);
 
     return { bytesRead, buffer };
   }
@@ -100,8 +113,9 @@ module.exports = class MockBinding extends AbstractBinding {
   }
 
   async write(buffer) {
-    // console.log('MockBinding::write', buffer.toString());
-
+    if(!this.isOpen) {
+      throw new Error('Port is not open');
+    }
 
     let cmd = buffer.toString().trim();
 
@@ -147,57 +161,26 @@ module.exports = class MockBinding extends AbstractBinding {
     throw new Error('MockBinding::update not implemented');
   }
 
-  /**
-   * Set control flags on an open port.
-   * @param {object=} options All options are operating system default when the port is opened. Every flag is set on each call to the provided or default values. All options are always provided.
-   * @param {Boolean} [options.brk=false] flag for brk
-   * @param {Boolean} [options.cts=false] flag for cts
-   * @param {Boolean} [options.dsr=false] flag for dsr
-   * @param {Boolean} [options.dtr=true] flag for dtr
-   * @param {Boolean} [options.rts=true] flag for rts
-   * @param {Boolean} [options.lowLatency=false] flag for lowLatency mode on Linux
-   * @returns {Promise} Resolves once the port's flags are set.
-   * @rejects {TypeError} When given invalid arguments, a `TypeError` is rejected.
-   */
   async set(options) {
     throw new Error('MockBinding::set not implemented');
   }
 
-  /**
-   * Get the control flags (CTS, DSR, DCD) on the open port.
-   * @returns {Promise} Resolves with the retrieved flags.
-   * @rejects {TypeError} When given invalid arguments, a `TypeError` is rejected.
-   */
   async get() {
     throw new Error('MockBinding::get not implemented');
   }
 
-  /**
-   * Get the OS reported baud rate for the open port.
-   * Used mostly for debugging custom baud rates.
-   * @returns {Promise} Resolves with the current baud rate.
-   * @rejects {TypeError} When given invalid arguments, a `TypeError` is rejected.
-   */
   async getBaudRate() {
     throw new Error('MockBinding::getBaudRate not implemented');
   }
 
-  /**
-   * Flush (discard) data received but not read, and written but not transmitted.
-   * @returns {Promise} Resolves once the flush operation finishes.
-   * @rejects {TypeError} When given invalid arguments, a `TypeError` is rejected.
-   */
   async flush() {
     throw new Error('MockBinding::flush not implemented');
   }
 
-  /**
-   * Drain waits until all output data is transmitted to the serial port. An in progress write should be completed before this returns.
-   * @returns {Promise} Resolves once the drain operation finishes.
-   * @rejects {TypeError} When given invalid arguments, a `TypeError` is rejected.
-   */
   async drain() {
-
+    if(!this.isOpen) {
+      throw new Error('Port is not open');
+    }
   }
 
   _txPacket(p, loopback) {
@@ -206,9 +189,7 @@ module.exports = class MockBinding extends AbstractBinding {
       this.txPackets.push(packet);
       if(typeof this.packetcb === 'function') {
         this.packetcb(this, packet);
-
       }
-      // console.log(packet);
       if(loopback) {
         let str = packet[0];
 
@@ -216,5 +197,30 @@ module.exports = class MockBinding extends AbstractBinding {
       }
     }
   }
-
 }
+
+/**
+ * The binding itself
+ */
+module.exports = {
+
+  async list() {
+    return [{
+      path: MOCK_PORT,
+      manufacturer: 'Mockery Inc',
+      serialNumber: undefined,
+      pnpId: undefined,
+      locationId: undefined,
+      vendorId: '0403',
+      productId: '6001',
+    }];
+  },
+
+  async open(options) {
+    if(!options || typeof options.path !== 'string') {
+      throw new TypeError('"path" is not a valid port');
+    }
+    await resolveNextTick();
+    return new MockPort(options);
+  },
+};

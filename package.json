@@ -1,5 +1,5 @@
 {
-  "name": "can-usb-com",
+  "name": "@csllc/can-usb-com",
   "version": "6.0.0",
   "description": "NodeJS interface to CAN-USB-COM Adapter",
   "main": "index.js",
@@ -17,7 +17,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git@github.com:bglase/can-usb-com.git"
+    "url": "git@github.com:csllc/can-usb-com.git"
   },
   "devDependencies": {
     "chai": "^4.5.0",

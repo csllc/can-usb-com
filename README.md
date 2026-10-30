@@ -4,10 +4,14 @@ This module provides a nodejs interface to the [gridconnect CAN-USB Converter](h
 
 The module implements the [device-specific serial protocol](https://gridconnect.box.com/shared/static/bt1lpbzdhx2fws11z1tvsoi2xnhbvgv3.pdf) and is not compatible with any other device or adapter.
 
+This package is published as `@csllc/can-usb-com`. It was forked from the unscoped [`can-usb-com`](https://www.npmjs.com/package/can-usb-com) package (version 5.x and earlier), which uses `serialport` 9 and does not work on current NodeJS versions.
+
+The module communicates with the adapter through [serialport](https://serialport.io/), which supports Windows, macOS and Linux. NodeJS 20 or later is required, and Node 24 or later is recommended.
+
 ## Getting Started
-The following assumes that [NodeJS](https://nodejs.org) 20 or later is already installed.  To install this module, use
+The following assumes that [NodeJS](https://nodejs.org) is already installed.  To install this module, use
 ```powershell
-npm install can-usb-com
+npm install @csllc/can-usb-com
 ```
 
 The usb device appears as a serial port; depending on your platform you may or may not need to install drivers.  If a serial port does not appear when you plug in the board, refer to the [board installation documents](https://gridconnect.box.com/shared/static/bt1lpbzdhx2fws11z1tvsoi2xnhbvgv3.pdf) and/or download drivers from https://gridconnect.com/usb-can-interface.html and correct the problem.
@@ -16,7 +20,7 @@ Note: on Windows, connecting the can-usb-com may cause the mouse to act erratica
 Simple script to use the board (change the COM port number as required):
 
 ```js
-const Can = require('can-usb-com');
+const Can = require('@csllc/can-usb-com');
 
 // Use default settings (do not filter messages)
 let board = new Can();
@@ -149,5 +153,26 @@ Please note the following if you wish to update or modify this package:
 
 `npm test` runs `test/basic.test.js`, which uses a mock serial port binding (`test/MockBinding.js`) and needs no hardware.  The mock is supplied through the `Binding` constructor option; any object implementing the serialport v10+ binding interface (`list()` and `open()`) can be used there.
 
-`test/filter.test.js` runs against real hardware.  In order to run it, you will need at least one CAN-USB-COM device connected to your computer.  I think you may have to have the CAN-USB-COM device connected to a properly terminated bus.  However, do not run the tests on a bus with active traffic, since receiving unexpected CAN packets will probably confuse the tests.
- 
+`npm run test:hardware` runs `test/filter.test.js` against real hardware.  In order to run it, you will need at least one CAN-USB-COM device connected to your computer.  I think you may have to have the CAN-USB-COM device connected to a properly terminated bus.  However, do not run the tests on a bus with active traffic, since receiving unexpected CAN packets will probably confuse the tests.
+
+The `local` folder holds older ad hoc test scripts. They are not part of the npm package and are not linted.
+
+## Distribution
+
+The module is plain JavaScript. Its only native code is in serialport's `@serialport/bindings-cpp` dependency, which ships its own prebuilt Node-API binaries, so nothing needs to be compiled when the module is installed.
+
+### Releasing
+
+Releases are published by the GitHub Actions workflow in `.github/workflows/release.yml`, which runs when a version tag is pushed:
+
+ 1. Run the hardware tests locally with a CAN-USB-COM adapter connected: `npm run test:hardware` (the CI runners have no CAN hardware, so they only run the unit tests)
+ 1. `npm version patch` (or `minor` / `major`), which updates `package.json` and creates the tag `vX.Y.Z`
+ 1. `git push --follow-tags`
+
+The workflow lints the code and runs the unit tests on Windows, macOS and Linux with NodeJS 20, 22 and 24, and checks that the serialport native binding loads on each. It then publishes the package to npm. Publishing uses npm trusted publishing, so no npm token is stored in GitHub; the package's trusted publisher on npmjs.com must name this repository and the workflow file `release.yml`.
+
+## Licensing and Dependencies
+
+This project is licensed under the MIT license - see the [LICENSE](LICENSE) file for details.
+
+It uses [serialport](https://serialport.io/) (`@serialport/stream` and `@serialport/bindings-cpp`), which is also MIT licensed.

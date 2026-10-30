@@ -5,7 +5,8 @@
 const CanUsbCom = require('..');
 const chai = require('chai');
 const expect = chai.expect;
-const should = chai.should();
+// Adds .should to all objects (used as can.should.emit())
+chai.should();
 chai.use(require('chai-events'));
 
 const CAN_OPTIONS = {

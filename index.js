@@ -201,7 +201,7 @@ module.exports = class CanUsbCom extends Duplex {
 
         me.port.write(prefix + msg.id.toString(16) + 'N' + buf.toString('hex') + ';\r');
 
-      } catch (err) {
+      } catch {
         //console.log('CanUsbCom write error: ',msg, err );
         //
         // what to do here...
@@ -462,7 +462,7 @@ module.exports = class CanUsbCom extends Duplex {
                 ext = true;
               }
 
-            } catch (err) {
+            } catch {
               // we sometimes get malformed packets (like an odd number of hex digits for the data)
               // I dunno why that is, so ignore them
               // console.log('onData error: ', fields, err);

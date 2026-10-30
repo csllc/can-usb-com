@@ -157,11 +157,11 @@ class MockPort {
 
   }
 
-  async update(options) {
+  async update() {
     throw new Error('MockBinding::update not implemented');
   }
 
-  async set(options) {
+  async set() {
     throw new Error('MockBinding::set not implemented');
   }
 

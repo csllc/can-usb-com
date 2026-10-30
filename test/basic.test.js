@@ -6,7 +6,8 @@
 const CanUsbCom = require('..');
 const chai = require('chai');
 const expect = chai.expect;
-const should = chai.should();
+// Adds .should to all objects (used as can.should.emit())
+chai.should();
 chai.use(require('chai-events'));
 
 const MockBinding = require('./MockBinding');
@@ -98,7 +99,7 @@ describe('Send a Message', () => {
       Binding: MockBinding,
       bindingOptions: {
 
-        packetcb: function(port, packet) {
+        packetcb: function(/* port, packet */) {
           //console.log('packetcb', packet);
         },
       }
@@ -202,7 +203,7 @@ describe('Receive a Message', () => {
       canRate: 250000,
       Binding: MockBinding,
       bindingOptions: {
-        packetcb: function(port, packet) {
+        packetcb: function(/* port, packet */) {
 
         },
       }

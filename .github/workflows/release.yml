@@ -1,0 +1,103 @@
+# Test the package, then publish it to npm.
+#
+# Triggered by pushing a version tag, e.g.:
+#   npm version patch      # bumps package.json and creates tag vX.Y.Z
+#   git push --follow-tags
+#
+# Publishing uses npm trusted publishing (OIDC), so no npm token is stored in
+# GitHub. The trusted publisher on npmjs.com must name this repository and the
+# workflow file "release.yml".
+#
+# The module is plain JavaScript. The only native code is serialport's
+# @serialport/bindings-cpp, which ships its own Node-API prebuilt binaries, so
+# there is nothing to build here. The unit tests (test/basic.test.js) use a
+# mock serial port, so they run on every supported platform and Node version.
+# The filter tests (test/filter.test.js) need a CAN-USB-COM adapter on a live
+# CAN bus, so they are not run here; run `npm run test:hardware` locally
+# before tagging a release.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+        node: [20, 22, 24]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm test
+
+      # The unit tests use a mock binding, so separately check that the real
+      # serialport native binding loads on this platform. The runner has no
+      # serial adapters, so the port list may well be empty.
+      - name: Check that the serial port binding loads
+        shell: bash
+        run: |
+          node -e "
+            const Can = require('.');
+            new Can().list().then((ports) => console.log('OK: list() =', ports));
+          "
+
+  publish:
+    name: Publish to npm
+    needs: test
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      id-token: write   # required for npm trusted publishing
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Check that the tag matches package.json
+        run: |
+          VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          fi
+
+      - name: Check package contents
+        run: npm pack --dry-run
+
+      - name: Publish
+        run: npm publish

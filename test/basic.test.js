@@ -506,3 +506,75 @@ describe('Error statistics', () => {
     can.close();
   });
 });
+
+
+describe('Closing and reopening', () => {
+
+  async function openCan(can) {
+    let result = await can.list();
+    await can.open(result[0].path);
+  }
+
+  // Resolves with the next frame received, or rejects if none arrives
+  function nextFrame(can) {
+    return new Promise((resolve, reject) => {
+      let timer = setTimeout(() => reject(new Error('No frame received')), 100);
+      can.once('data', (msg) => {
+        clearTimeout(timer);
+        resolve(msg);
+      });
+    });
+  }
+
+  it('should resolve close() after the port has closed', async () => {
+
+    let can = new CanUsbCom({ Binding: MockBinding });
+    await openCan(can);
+
+    let closed = false;
+    can.on('close', () => { closed = true; });
+    await can.close();
+
+    expect(closed).to.eq(true);
+    expect(can.isOpen()).to.not.be.ok;
+  });
+
+  it('should open again straight after close() without waiting for it', async () => {
+
+    let can = new CanUsbCom({ Binding: MockBinding });
+    await openCan(can);
+
+    can.close();
+    await openCan(can);
+
+    // Give the first port's close time to finish
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(can.isOpen()).to.be.ok;
+    expect((await can.status()).connection).to.eq('connected');
+
+    let p = nextFrame(can);
+    can._onData(Buffer.from(':S123N01;'));
+    expect((await p).id).to.eq(0x123);
+
+    await can.close();
+  });
+
+  it('should keep receiving data after being closed and opened again', async () => {
+
+    let can = new CanUsbCom({ Binding: MockBinding });
+    let errors = [];
+    can.on('error', (err) => errors.push(err));
+
+    await openCan(can);
+    await can.close();
+    await openCan(can);
+
+    let p = nextFrame(can);
+    can._onData(Buffer.from(':S124N02;'));
+    expect((await p).id).to.eq(0x124);
+    expect(errors).to.deep.eq([]);
+
+    await can.close();
+  });
+});

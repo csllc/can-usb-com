@@ -131,7 +131,7 @@ module.exports = class CanUsbCom extends Duplex {
 
       // Do this last, since the caller will have their callback called
       // when the port is opened
-      me.port = new SerialPortStream(serialOptions, function(err) {
+      const serialPort = new SerialPortStream(serialOptions, function(err) {
 
         if(err) {
           reject(err);
@@ -156,15 +156,23 @@ module.exports = class CanUsbCom extends Duplex {
         }
 
       });
+      me.port = serialPort;
 
       // Call event handler on serial port error
-      me.port.on('error', me._onSerialError.bind(me));
+      serialPort.on('error', me._onSerialError.bind(me));
 
       // call the onData function when data is received
-      me.port.on('data', me._onData.bind(me));
+      serialPort.on('data', me._onData.bind(me));
 
       // event when the port is closed or disconnected
-      me.port.on('close', function(err) {
+      serialPort.on('close', function(err) {
+
+        // If open() has been called again since this port was closed, the
+        // close finished after the new port was created; it has nothing to do
+        // with the new port, so leave it alone
+        if(me.port !== null && me.port !== serialPort) {
+          return;
+        }
 
         me._flushRequestQueue();
 
@@ -181,28 +189,40 @@ module.exports = class CanUsbCom extends Duplex {
         // owner calls 'close'
         me.emit('close', err);
 
+        // The readable side of this stream is not ended (with push(null)), so
+        // that the port can be opened again and receive more data
         me.isReady = false;
         me.port = null;
         me._updateStatus();
-        this.push(null);
       });
 
     });
 
   }
 
-  // Close the serial port and clean up
+  // Close the serial port and clean up. Returns a promise that resolves when
+  // the serial port has been closed (and the 'close' event emitted).
   close() {
-    this._flushRequestQueue();
-    if(this.isOpen()) {
+    const serialPort = this.port;
 
-      this.port.close();
-    }
+    this._flushRequestQueue();
     this.port = null;
     this.isReady = false;
     this._path = null;
     this._disconnected = false;
     this._updateStatus();
+
+    return new Promise(function(resolve) {
+      if(serialPort && serialPort.isOpen) {
+        // Errors closing the port are ignored, as before; the port is closed
+        // as far as this module is concerned anyway
+        serialPort.close(function() {
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
   }
 
   // Resolves with bus error statistics. The counters cover the time since the

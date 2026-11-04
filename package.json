@@ -1,6 +1,6 @@
 {
   "name": "@csllc/can-usb-com",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "description": "NodeJS interface to the GridConnect CAN-USB-COM adapter",
   "main": "index.js",
   "files": [

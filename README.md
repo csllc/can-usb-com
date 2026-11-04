@@ -111,6 +111,7 @@ The board object emits the following events:
 * `error` if an error occurs (like the serial port could not be opened)
 * `data` when an incoming CANBUS frame is received
 * `write` when an outgoing CANBUS frame is sent to the device (the event occurs before the frame is actually put on the wire)
+* `status` when the status of the port changes (see [Status](#status))
 * `close` when the port is closed
 
 To listen for the events, use the typical NodeJS EventEmitter pattern:
@@ -144,6 +145,48 @@ To listen for the events, use the typical NodeJS EventEmitter pattern:
   Refer to the CAN-USB-COM protocol document for additional details on the use of the commands and valid parameter ranges.
 
 
+### Error Statistics
+
+`errorStats()` returns a Promise that resolves with an object that has the same fields as in the other CAN adapter modules used by `@csllc/cs-canbus-universal` (see its documentation). The CAN-USB-COM doesn't report bus errors or the state of its CAN controller, so only these fields have values; the rest are `null`:
+
+```js
+{
+  since: Date,   // when counting started (when the port was opened); null if never opened
+  txFrames: 0,   // frames sent
+  rxFrames: 0,   // frames received
+  ...
+}
+```
+
+With `loopback` enabled, frames the adapter echoes back are counted as received as well as sent.
+
+### Status
+
+`status()` returns a Promise that resolves with the status of the port. The object has the same fields in all of the CAN adapter modules used by `@csllc/cs-canbus-universal`; a field whose value is not available is `null`. Whenever the status changes, a `status` event is emitted with the new status.
+
+```js
+{
+  port: 'COM9',              // the port that is open (as passed to open()); null if closed
+  connection: 'connected', // 'closed', 'connected', or 'disconnected' (the adapter stopped responding, e.g. was unplugged, while the port was open)
+  state: 'error-active',   // 'error-active', 'error-warning', 'error-passive', 'bus-off', 'stopped', 'sleeping', or null
+  bitrate: 250000,         // bit rate in use, in bit/s
+}
+```
+
+`state` is the same as in [Error Statistics](#error-statistics), and is `null` unless `connection` is `'connected'`. A port that is `'disconnected'` stays that way until it is closed; `isConnected()` returns false for it.
+
+```js
+can.on('status', (status) => {
+  console.log(status.connection, status.state);
+});
+```
+
+In this module:
+
+ - The CAN-USB-COM doesn't report the state of its CAN controller, so `state` is always `null`.
+ - `bitrate` is the `canRate` option that the adapter was configured with.
+ - The adapter is taken to be disconnected when the serial port is closed because the device went away (the `close` event's error has `disconnected` set). The serial port is already closed then, so `isOpen()` returns false, but the status stays `'disconnected'` until `close()` or `open()` is called.
+ - Status changes are noticed from serial port events, so no periodic check is needed.
 
 ## Development
 Please note the following if you wish to update or modify this package:

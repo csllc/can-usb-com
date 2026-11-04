@@ -38,6 +38,16 @@ const DEFAULT_OPTIONS = {
   loopback: false,
 };
 
+// Returns the status of a port that isn't open
+function closedStatus() {
+  return { port: null, connection: 'closed', state: null, bitrate: null };
+}
+
+// Returns whether two status objects are the same
+function sameStatus(a, b) {
+  return a.port === b.port && a.connection === b.connection &&
+    a.state === b.state && a.bitrate === b.bitrate;
+}
 
 
 /**
@@ -58,6 +68,15 @@ module.exports = class CanUsbCom extends Duplex {
     this.isReady = false;
 
     this._rxData = '';
+
+    this._path = null; // path of the open serial port
+    this._disconnected = false; // the adapter was unplugged while open
+    this._lastStatus = closedStatus(); // last status reported or emitted
+
+    // Frame counters for errorStats(), since the port was opened
+    this._statsSince = null;
+    this._txFrames = 0;
+    this._rxFrames = 0;
   }
 
   // sets (or re-sets) the configuration options.
@@ -107,6 +126,9 @@ module.exports = class CanUsbCom extends Duplex {
         serialOptions.bindingOptions = me.options.bindingOptions;
       }
 
+      me._path = port;
+      me._disconnected = false;
+
       // Do this last, since the caller will have their callback called
       // when the port is opened
       me.port = new SerialPortStream(serialOptions, function(err) {
@@ -118,8 +140,12 @@ module.exports = class CanUsbCom extends Duplex {
           me._configure()
           .then(function() {
             // success!
+            me._statsSince = new Date();
+            me._txFrames = 0;
+            me._rxFrames = 0;
             me.isReady = true;
             me.emit('open');
+            me._updateStatus();
 
             resolve();
           })
@@ -142,6 +168,13 @@ module.exports = class CanUsbCom extends Duplex {
 
         me._flushRequestQueue();
 
+        // If the adapter was unplugged while the port was open (as opposed
+        // to our owner calling close()), the port stays 'disconnected' until
+        // close() or open() is called
+        if(err && err.disconnected && me._path !== null) {
+          me._disconnected = true;
+        }
+
         // pass up to our listeners.  If port was disconnected
         // (eg remove usb cable), err is an Error object with
         // err.disconnected = true.  We also get here if our
@@ -150,6 +183,7 @@ module.exports = class CanUsbCom extends Duplex {
 
         me.isReady = false;
         me.port = null;
+        me._updateStatus();
         this.push(null);
       });
 
@@ -166,7 +200,36 @@ module.exports = class CanUsbCom extends Duplex {
     }
     this.port = null;
     this.isReady = false;
+    this._path = null;
+    this._disconnected = false;
+    this._updateStatus();
+  }
 
+  // Resolves with bus error statistics. The counters cover the time since the
+  // port was opened (see .since). Fields whose value is not known are null.
+  async errorStats() {
+    // The CAN-USB-COM doesn't report bus errors or the state of its CAN
+    // controller, so only the frame counters are known
+    return {
+      since: this._statsSince,
+      txFrames: this._txFrames,
+      rxFrames: this._rxFrames,
+      errorFrames: null,
+      errorPercent: null,
+      errors: { bit: null, stuff: null, form: null, crc: null, ack: null, other: null },
+      arbitrationLost: null,
+      overruns: null,
+      busOff: null,
+      state: null,
+      txErrorCounter: null,
+      rxErrorCounter: null,
+    };
+  }
+
+  // Resolves with the current status of the port. A 'status' event is emitted
+  // with the same object whenever it changes.
+  async status() {
+    return Object.assign({}, this._updateStatus());
   }
 
   // Required function for cs-modbus GenericConnection
@@ -200,6 +263,7 @@ module.exports = class CanUsbCom extends Duplex {
       try {
 
         me.port.write(prefix + msg.id.toString(16) + 'N' + buf.toString('hex') + ';\r');
+        me._txFrames++;
 
       } catch {
         //console.log('CanUsbCom write error: ',msg, err );
@@ -349,6 +413,29 @@ module.exports = class CanUsbCom extends Duplex {
     }
   }
 
+  // Returns the current status of the port. The CAN-USB-COM doesn't report
+  // the state of the CAN controller, so state is always null.
+  _readStatus() {
+    if(this._disconnected) {
+      return { port: this._path, connection: 'disconnected', state: null, bitrate: this.options.canRate };
+    }
+    if(this.isOpen()) {
+      return { port: this._path, connection: 'connected', state: null, bitrate: this.options.canRate };
+    }
+    return closedStatus();
+  }
+
+  // Reads the current status, and emits a 'status' event if it changed.
+  // Returns the status.
+  _updateStatus() {
+    const status = this._readStatus();
+    if(!sameStatus(status, this._lastStatus)) {
+      this._lastStatus = status;
+      this.emit('status', Object.assign({}, status));
+    }
+    return status;
+  }
+
   // Event handler for error reported by serial port
   _onSerialError(err) {
     // not really sure how to handle this in a more elegant way
@@ -469,6 +556,8 @@ module.exports = class CanUsbCom extends Duplex {
             }
 
             if(id > 0) {
+              me._rxFrames++;
+
               // emit a standard (non-J1939) message
               me.push({
                 id: id,

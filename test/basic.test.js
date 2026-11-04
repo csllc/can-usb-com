@@ -406,3 +406,103 @@ describe('Implement a standard stream interface', () => {
 
   })
 });
+
+
+describe('Status', () => {
+
+  const CLOSED = { port: null, connection: 'closed', state: null, bitrate: null };
+
+  // Creates an instance that records its status events, and opens it
+  async function openCan() {
+    let can = new CanUsbCom({
+      canRate: 250000,
+      Binding: MockBinding,
+    });
+    can.statusEvents = [];
+    can.on('status', (status) => can.statusEvents.push(status));
+
+    let result = await can.list();
+    await can.open(result[0].path);
+    return can;
+  }
+
+  it('should report a closed port before it is opened', async () => {
+
+    let can = new CanUsbCom({ Binding: MockBinding });
+
+    expect(await can.status()).to.deep.eq(CLOSED);
+  });
+
+  it('should report and emit the status when the port is opened and closed', async () => {
+
+    let can = await openCan();
+
+    let status = await can.status();
+    expect(status).to.deep.eq({
+      port: '/dev/MOCK', connection: 'connected', state: null, bitrate: 250000,
+    });
+    expect(can.statusEvents).to.deep.eq([status]);
+
+    can.close();
+
+    expect(await can.status()).to.deep.eq(CLOSED);
+    expect(can.statusEvents).to.deep.eq([status, CLOSED]);
+  });
+
+  it('should report a disconnected adapter until the port is closed', async () => {
+
+    let can = await openCan();
+
+    let p = new Promise((resolve) => can.once('status', resolve));
+    can.port.port.disconnect();
+    let status = await p;
+
+    expect(status).to.deep.eq({
+      port: '/dev/MOCK', connection: 'disconnected', state: null, bitrate: 250000,
+    });
+    expect(await can.status()).to.deep.eq(status);
+    expect(can.isConnected()).to.not.be.ok;
+
+    can.close();
+
+    expect(await can.status()).to.deep.eq(CLOSED);
+    expect(can.statusEvents[can.statusEvents.length - 1]).to.deep.eq(CLOSED);
+  });
+});
+
+
+describe('Error statistics', () => {
+
+  it('should count frames sent and received, and report the rest as unknown', async () => {
+
+    let can = new CanUsbCom({ canRate: 250000, Binding: MockBinding });
+
+    let stats = await can.errorStats();
+    expect(stats.since).to.eq(null);
+    expect(stats.txFrames).to.eq(0);
+
+    let result = await can.list();
+    await can.open(result[0].path);
+
+    can.write({ id: 0x100, ext: false, buf: [1] });
+    can.write({ id: 0x101, ext: false, buf: [] });
+    let p = new Promise((resolve) => can.once('data', resolve));
+    can._onData(Buffer.from(':S200N01;'));
+    await p;
+
+    stats = await can.errorStats();
+    expect(stats).to.have.all.keys('since', 'txFrames', 'rxFrames', 'errorFrames',
+      'errorPercent', 'errors', 'arbitrationLost', 'overruns', 'busOff', 'state',
+      'txErrorCounter', 'rxErrorCounter');
+    expect(stats.since).to.be.instanceof(Date);
+    expect(stats.txFrames).to.eq(2);
+    expect(stats.rxFrames).to.eq(1);
+    for (let key of ['errorFrames', 'errorPercent', 'arbitrationLost', 'overruns',
+      'busOff', 'state', 'txErrorCounter', 'rxErrorCounter']) {
+      expect(stats[key], key).to.eq(null);
+    }
+    expect(Object.values(stats.errors).every((v) => v === null)).to.eq(true);
+
+    can.close();
+  });
+});

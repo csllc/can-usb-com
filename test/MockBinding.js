@@ -80,6 +80,11 @@ class MockPort {
     if(!this.isOpen) {
       throw canceledError('Read canceled');
     }
+    if(this.disconnectError) {
+      const err = this.disconnectError;
+      this.disconnectError = null;
+      throw err;
+    }
     if(this.rxdata.length <= 0) {
       return new Promise((resolve, reject) => {
         this.pendingRead = err => {
@@ -96,6 +101,21 @@ class MockPort {
     this.rxdata = this.rxdata.subarray(bytesRead);
 
     return { bytesRead, buffer };
+  }
+
+  // Pretend the adapter was unplugged. The pending read fails, which the
+  // serialport stream treats as a disconnection: it closes the port and emits
+  // 'close' with an error that has `disconnected` set.
+  disconnect() {
+    const err = new Error('Device disconnected');
+    if(this.pendingRead) {
+      const pendingRead = this.pendingRead;
+      this.pendingRead = null;
+      pendingRead(err);
+    } else {
+      // No read is waiting yet; fail the next one
+      this.disconnectError = err;
+    }
   }
 
   // Emit data on a mock port
